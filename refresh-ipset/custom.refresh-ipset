@@ -1,0 +1,173 @@
+#!/bin/bash
+# shellcheck disable=SC2015
+
+ipsver=18
+
+umask 0077
+export LANG=C
+export LC_ALL=C
+
+ipset_cmd=$(which ipset)
+curl_cmd=$(which curl)
+
+ignore_list="/usr/local/etc/refresh-ipset.ignore"
+override_list="/usr/local/etc/refresh-ipset.override"
+custom_lists_dir="/usr/local/etc/refresh-ipset"
+
+uuid_url="https://oss.help/uuid"
+our_uuid=$(test -s /var/backups/uuid && cat /var/backups/uuid || curl --silent --user-agent "${force_ua}" $uuid_url | tee /var/backups/uuid)
+force_ua="refresh-ipset/${ipsver} (${LC_HOST:--}/${our_uuid}/${LC_SHIFT:--})"
+data_dir="/var/lib/refresh-ipset"
+download_retry=3
+lists_updated=0
+
+function update_used_lists() {
+    test -d ${data_dir} || mkdir -p ${data_dir}
+
+    test -r ${override_list} && lists=$(cat ${override_list})
+    test -r ${override_list} || {
+        test -f "${target}" && lists=$(grep -E '^create ' "${target}" | awk '{print $2}')
+        test -f "${target}" || lists=$($ipset_cmd save | grep -E '^create ' | awk '{print $2}')
+    }
+
+    for list_name in $lists; do
+        grep -E "^${list_name}$" "${ignore_list}" >/dev/null 2>&1 && continue
+
+        grep -qE '^http(s)?://\S+\/\S+' "${custom_lists_dir}/${list_name}" 2>/dev/null && {
+            custom_list_uri=$(head -n 1 "${custom_lists_dir}/${list_name}")
+            case "${list_name}" in
+                *-v6)
+                    refresh_list "${list_name}" "${custom_list_uri}" inet6
+                    ;;
+                *)
+                    refresh_list "${list_name}" "${custom_list_uri}"
+                    ;;
+            esac
+            continue
+        }
+
+        case "${list_name}" in
+            scake-v4)
+                refresh_list "${list_name}" https://www.statuscake.com/API/Locations/txt inet
+                ;;
+            cf-v4)
+                refresh_list "${list_name}" https://www.cloudflare.com/ips-v4 inet
+                ;;
+            cf-v6)
+                refresh_list "${list_name}" https://www.cloudflare.com/ips-v6 inet6
+                ;;
+            pd-v4)
+                refresh_list "${list_name}" https://my.pingdom.com/probes/ipv4 inet
+                ;;
+            pd-v6)
+                refresh_list "${list_name}" https://my.pingdom.com/probes/ipv6 inet6
+                ;;
+            fh-netset4-*)
+                refresh_list "${list_name}" "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${list_name##fh-netset4-}.netset" inet
+                ;;
+            fh-ipset4-*)
+                refresh_list "${list_name}" "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${list_name##fh-ipset4-}.ipset" inet
+                ;;
+            fh-ns4-*)
+                refresh_list "${list_name}" "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${list_name##fh-ns4-}.netset" inet
+                ;;
+            fh-ip4-*)
+                refresh_list "${list_name}" "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${list_name##fh-ip4-}.ipset" inet
+                ;;
+            *-v4)
+                refresh_list "${list_name}" "https://oss.help/${list_name}" inet
+                ;;
+            *-v6)
+                refresh_list "${list_name}" "https://oss.help/${list_name}" inet6
+                ;;
+        esac
+    done
+    test "${lists_updated:-0}" == "1" && $ipset_cmd save > "${target}"
+    test "${found_any_list:-0}" == "1" || echo "[ERROR] Didn't find any known ipset lists. You should create at least one or use override list."
+}
+
+function refresh_list() {
+    found_any_list=1
+
+    local list_name=$1
+    local list_source=$2
+    local list_family=${3:-inet}
+    local list_changed=0
+
+    local tmp_list_file=${data_dir}/${list_name}.$$
+    # will be used later
+    local tmp_list_file_lines
+    local tmp_list_size
+    local current_list_size
+
+    local error_code=0
+    local error_on_update=1
+
+    test -f "${data_dir}/${list_name}" && local time_opts="${data_dir}/${list_name}"
+    error_code=$( $curl_cmd --silent --retry ${download_retry} --user-agent "${force_ua}" --compressed --location --fail --time-cond "${time_opts:-1970 Jan 1}" --write-out '%{http_code}' --output "${tmp_list_file}" "${list_source}" )
+
+    test $? -eq 0 && {
+        test "${error_code}" -eq 304 && error_on_update=0
+        test "${error_code}" -eq 200 -a -s "${tmp_list_file}" && {
+            test "${list_family}" = "inet"  && { ips=$( perl -nle 'print $1 if /^(\d+\.\d+\.\d+\.\d+(\/\d+)?)$/' < "${tmp_list_file}" | sort -n | uniq ); }
+            test "${list_family}" = "inet6" && { ips=$( perl -nle 'print $1 if /^([0-9a-z]+(:[0-9a-z]*){0,7}(\/\d+)?)$/i' < "${tmp_list_file}" | sort -n | uniq ); }
+
+            # we need size of lists
+            tmp_list_file_lines=$( wc -l "${tmp_list_file}" | awk '{print $1}' )
+            tmp_list_size=$(( tmp_list_file_lines + 1024 ))
+            current_list_size=$( ipset save | sed -rn "s/create ${list_name} .+ maxelem (.+)/\1/p" )
+
+            test ${#ips} -gt 0 && {
+                error_on_update=0
+                test -f "${data_dir}/${list_name}" || date > "${data_dir}/${list_name}"
+                test -x "${ipset_cmd}" && {
+                    $ipset_cmd -exist create "${list_name}" hash:net family "${list_family}" maxelem "${current_list_size:-65536}" && \
+                    $ipset_cmd -exist create "${list_name}-temp" hash:net family  "${list_family}" maxelem "${tmp_list_size}" && \
+                    echo -n "${ips}" | xargs -r -d '\n' -n 1 "${ipset_cmd}" -exist add "${list_name}-temp" && \
+                    {
+                        current_sha=$(${ipset_cmd} save "${list_name}"  | tail -n +2 | cut -d ' ' -f 3 | sort -n | sha1sum | cut -d ' ' -f 1)
+                        new_sha=$(${ipset_cmd} save "${list_name}-temp" | tail -n +2 | cut -d ' ' -f 3 | sort -n | sha1sum | cut -d ' ' -f 1)
+                        test "${current_sha}" == "${new_sha}" || {
+                            lists_updated=1
+                            list_changed=1
+                            $ipset_cmd swap "${list_name}-temp" "${list_name}"
+                            date > "${data_dir}/${list_name}"
+                        }
+                    } && \
+                    $ipset_cmd destroy "${list_name}-temp"
+                }
+                test ${list_changed:-0} -eq 1 && {
+                    test -r "${monit_dir}/access/${list_name}" && {
+                        echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP" > "${monit_dir}/access/${list_name}"
+                    }
+                    test -r "/etc/nginx/access/${list_name}.conf" && {
+                        echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP;" > "/etc/nginx/access/${list_name}.conf"
+                    }
+                    test -r "/etc/nginx/maps/${list_name}.conf" && {
+                        {
+                            echo "geo \$${list_name/-/_} {"
+                            echo "  default 0;"
+                            echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "  IP 1;"
+                            echo "}"
+                        } > "/etc/nginx/maps/${list_name}.conf"
+                    }
+                } || true
+            }
+        }
+    }
+
+    test ${error_on_update} -gt 0 && echo "[ERROR] Skipping update of $list_name, you should check it"
+    test -f "${tmp_list_file}" && rm "${tmp_list_file}"
+    return $error_on_update
+}
+
+test -x "${curl_cmd}" || { echo "Not found curl in ${PATH}, please fix it."; exit 1;}
+test -r "${override_list}" -o -x "${ipset_cmd}" || { echo "Not found ipset in ${PATH}, please fix it."; exit 1;}
+
+test $# -gt 0 && target=$1
+test $# -eq 0 && {
+    test -f /etc/debian_version && { target=/etc/network/ipset.list; monit_dir=/etc/monit; }
+    test -f /etc/redhat-release && { target=/etc/sysconfig/ipset; monit_dir=/etc/monit.d; }
+}
+
+update_used_lists
