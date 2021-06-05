@@ -12,6 +12,7 @@ This script performs automatic updates of ipset lists and ACL for Nginx/Monit. I
 - ovh-v4 - OVH IPv4
 - scake-v4 - StatusCake IPv4
 - fh-* - [FireHOL](http://iplists.firehol.org/) lists
+- do-v4 and do-v6 - DigitalOcean IPv4 and IPv6
 
 Also, it supports adding custom ipset lists and some internal OSSHelp ipset lists.
 

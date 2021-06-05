@@ -1,14 +1,14 @@
 #!/bin/bash
 # shellcheck disable=SC2015
 
-ipsver=18
+ipsver=19
 
 umask 0077
 export LANG=C
 export LC_ALL=C
 
-ipset_cmd=$(which ipset)
-curl_cmd=$(which curl)
+ipset_cmd=$(command -v ipset)
+curl_cmd=$(command -v curl)
 
 ignore_list="/usr/local/etc/refresh-ipset.ignore"
 override_list="/usr/local/etc/refresh-ipset.override"
@@ -74,6 +74,12 @@ function update_used_lists() {
             fh-ip4-*)
                 refresh_list "${list_name}" "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/${list_name##fh-ip4-}.ipset" inet
                 ;;
+            do-v4)
+                refresh_list "${list_name}" "https://digitalocean.com/geo/google.csv" inet
+                ;;
+            do-v6)
+                refresh_list "${list_name}" "https://digitalocean.com/geo/google.csv" inet6
+                ;;
             *-v4)
                 refresh_list "${list_name}" "https://oss.help/${list_name}" inet
                 ;;
@@ -109,6 +115,9 @@ function refresh_list() {
     test $? -eq 0 && {
         test "${error_code}" -eq 304 && error_on_update=0
         test "${error_code}" -eq 200 -a -s "${tmp_list_file}" && {
+            # cut ips if file format is csv
+            test "${list_source##*.}" == "csv" && sed -i 's/,.*//g' "${tmp_list_file}"
+
             test "${list_family}" = "inet"  && { ips=$( perl -nle 'print $1 if /^(\d+\.\d+\.\d+\.\d+(\/\d+)?)$/' < "${tmp_list_file}" | sort -n | uniq ); }
             test "${list_family}" = "inet6" && { ips=$( perl -nle 'print $1 if /^([0-9a-z]+(:[0-9a-z]*){0,7}(\/\d+)?)$/i' < "${tmp_list_file}" | sort -n | uniq ); }
 
