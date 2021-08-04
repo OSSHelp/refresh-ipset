@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015
 
-ipsver=19
+ipsver=20
 
 umask 0077
 export LANG=C
@@ -148,9 +148,11 @@ function refresh_list() {
                 test ${list_changed:-0} -eq 1 && {
                     test -r "${monit_dir}/access/${list_name}" && {
                         echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP" > "${monit_dir}/access/${list_name}"
+                        monit -t && monit reload || { error_on_update=1; echo "[ERROR] Monit syntax error after update of access/$list_name, you should check it";}
                     }
                     test -r "/etc/nginx/access/${list_name}.conf" && {
                         echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP;" > "/etc/nginx/access/${list_name}.conf"
+                        nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of access/$list_name, you should check it";}
                     }
                     test -r "/etc/nginx/maps/${list_name}.conf" && {
                         {
@@ -159,6 +161,7 @@ function refresh_list() {
                             echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "  IP 1;"
                             echo "}"
                         } > "/etc/nginx/maps/${list_name}.conf"
+                        nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of maps/$list_name, you should check it";}
                     }
                 } || true
             }
