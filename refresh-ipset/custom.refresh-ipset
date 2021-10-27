@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015
 
-ipsver=20
+ipsver=21
 
 umask 0077
 export LANG=C
@@ -101,10 +101,6 @@ function refresh_list() {
     local list_changed=0
 
     local tmp_list_file=${data_dir}/${list_name}.$$
-    # will be used later
-    local tmp_list_file_lines
-    local tmp_list_size
-    local current_list_size
 
     local error_code=0
     local error_on_update=1
@@ -121,17 +117,12 @@ function refresh_list() {
             test "${list_family}" = "inet"  && { ips=$( perl -nle 'print $1 if /^(\d+\.\d+\.\d+\.\d+(\/\d+)?)$/' < "${tmp_list_file}" | sort -n | uniq ); }
             test "${list_family}" = "inet6" && { ips=$( perl -nle 'print $1 if /^([0-9a-z]+(:[0-9a-z]*){0,7}(\/\d+)?)$/i' < "${tmp_list_file}" | sort -n | uniq ); }
 
-            # we need size of lists
-            tmp_list_file_lines=$( wc -l "${tmp_list_file}" | awk '{print $1}' )
-            tmp_list_size=$(( tmp_list_file_lines + 1024 ))
-            current_list_size=$( ipset save | sed -rn "s/create ${list_name} .+ maxelem (.+)/\1/p" )
-
             test ${#ips} -gt 0 && {
                 error_on_update=0
                 test -f "${data_dir}/${list_name}" || date > "${data_dir}/${list_name}"
                 test -x "${ipset_cmd}" && {
-                    $ipset_cmd -exist create "${list_name}" hash:net family "${list_family}" maxelem "${current_list_size:-65536}" && \
-                    $ipset_cmd -exist create "${list_name}-temp" hash:net family  "${list_family}" maxelem "${tmp_list_size}" && \
+                    $ipset_cmd -exist create "${list_name}" hash:net family "${list_family}" maxelem 65536 && \
+                    $ipset_cmd -exist create "${list_name}-temp" hash:net family  "${list_family}" maxelem 65536 && \
                     echo -n "${ips}" | xargs -r -d '\n' -n 1 "${ipset_cmd}" -exist add "${list_name}-temp" && \
                     {
                         current_sha=$(${ipset_cmd} save "${list_name}"  | tail -n +2 | cut -d ' ' -f 3 | sort -n | sha1sum | cut -d ' ' -f 1)
