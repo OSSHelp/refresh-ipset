@@ -9,6 +9,8 @@ export LC_ALL=C
 
 ipset_cmd=$(command -v ipset)
 curl_cmd=$(command -v curl)
+monit_cmd=$(command -v monit)
+nginx_cmd=$(command -v nginx)
 
 ignore_list="/usr/local/etc/refresh-ipset.ignore"
 override_list="/usr/local/etc/refresh-ipset.override"
@@ -139,11 +141,11 @@ function refresh_list() {
                 test ${list_changed:-0} -eq 1 && {
                     test -r "${monit_dir}/access/${list_name}" && {
                         echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP" > "${monit_dir}/access/${list_name}"
-                        monit -t && monit reload || { error_on_update=1; echo "[ERROR] Monit syntax error after update of access/$list_name, you should check it";}
+                        test -x "${monit_cmd}" && { monit -t && monit reload || { error_on_update=1; echo "[ERROR] Monit syntax error after update of access/$list_name, you should check it";} }
                     }
                     test -r "/etc/nginx/access/${list_name}.conf" && {
                         echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "allow IP;" > "/etc/nginx/access/${list_name}.conf"
-                        nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of access/$list_name, you should check it";}
+                        test -x "${nginx_cmd}" && { nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of access/$list_name, you should check it";} }
                     }
                     test -r "/etc/nginx/maps/${list_name}.conf" && {
                         {
@@ -152,7 +154,7 @@ function refresh_list() {
                             echo -n "${ips}" | xargs -r -d '\n' -I IP -n 1 echo "  IP 1;"
                             echo "}"
                         } > "/etc/nginx/maps/${list_name}.conf"
-                        nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of maps/$list_name, you should check it";}
+                        test -x "${nginx_cmd}" && { nginx -t && nginx -s reload || { error_on_update=1; echo "[ERROR] Nginx syntax error after update of maps/$list_name, you should check it";} }
                     }
                 } || true
             }
