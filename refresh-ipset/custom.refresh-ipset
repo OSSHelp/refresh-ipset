@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015
 
-ipsver=21
+ipsver=22
 
 umask 0077
 export LANG=C
@@ -81,6 +81,12 @@ function update_used_lists() {
                 ;;
             do-v6)
                 refresh_list "${list_name}" "https://digitalocean.com/geo/google.csv" inet6
+                ;;
+            ur-v4)
+                refresh_list "${list_name}" https://uptimerobot.com/inc/files/ips/IPv4.txt inet
+                ;;
+            ur-v6)
+                refresh_list "${list_name}" https://uptimerobot.com/inc/files/ips/IPv4andIPv6.txt inet6
                 ;;
             *-v4)
                 refresh_list "${list_name}" "https://oss.help/${list_name}" inet

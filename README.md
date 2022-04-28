@@ -13,6 +13,7 @@ This script performs automatic updates of ipset lists and ACL for Nginx/Monit. I
 - scake-v4 - StatusCake IPv4
 - fh-* - [FireHOL](http://iplists.firehol.org/) lists
 - do-v4 and do-v6 - DigitalOcean IPv4 and IPv6
+- ur-v4 and ur-v6 - [UptimeRobot](https://uptimerobot.com/) lists
 
 Also, it supports adding custom ipset lists and some internal OSSHelp ipset lists.
 
