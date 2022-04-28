@@ -1,7 +1,7 @@
 #!/bin/bash
 # shellcheck disable=SC2015
 
-ipsver=23
+ipsver=24
 
 umask 0077
 export LANG=C
@@ -121,6 +121,9 @@ function refresh_list() {
         test "${error_code}" -eq 200 -a -s "${tmp_list_file}" && {
             # cut ips if file format is csv
             test "${list_source##*.}" == "csv" && sed -i 's/,.*//g' "${tmp_list_file}"
+
+            # remove ^M from files
+            perl -p -i -e "s/\r//g" "${tmp_list_file}"
 
             test "${list_family}" = "inet"  && { ips=$( perl -nle 'print $1 if /^(\d+\.\d+\.\d+\.\d+(\/\d+)?)$/' < "${tmp_list_file}" | sort -n | uniq ); }
             test "${list_family}" = "inet6" && { ips=$( perl -nle 'print $1 if /^([0-9a-z]+(:[0-9a-z]*){0,7}(\/\d+)?)$/i' < "${tmp_list_file}" | sort -n | uniq ); }
