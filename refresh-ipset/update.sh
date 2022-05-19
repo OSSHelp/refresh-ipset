@@ -5,7 +5,7 @@ umask 0077
 export LANG=C
 export LC_ALL=C
 
-declare -r ipsver=24
+declare -r ipsver=25
 silent=no
 tmpdir="${TEMP:=/tmp}"
 index_url="${REMOTE_URI:-https://oss.help/scripts/tools/ipset/.list}"

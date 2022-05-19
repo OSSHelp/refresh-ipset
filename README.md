@@ -1,6 +1,6 @@
 # refresh-ipset
 
-[![Build Status](https://drone.osshelp.ru/api/badges/OSSHelp/refresh-ipset/status.svg)](https://drone.osshelp.ru/OSSHelp/refresh-ipset)
+[![Build Status](https://drone.osshelp.io/api/badges/OSSHelp/refresh-ipset/status.svg)](https://drone.osshelp.io/OSSHelp/refresh-ipset)
 
 ## About
 
